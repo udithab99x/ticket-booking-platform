@@ -1,0 +1,77 @@
+# ─── postgres-events StatefulSet + Service ───────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-events
+  namespace: ticket-booking
+  labels:
+    app: postgres-events
+spec:
+  selector:
+    app: postgres-events
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-events
+  namespace: ticket-booking
+spec:
+  serviceName: postgres-events
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-events
+  template:
+    metadata:
+      labels:
+        app: postgres-events
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: events_db
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard-rwo
+        resources:
+          requests:
+            storage: 5Gi

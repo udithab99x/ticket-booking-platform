@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: ticket-booking
+data:
+  # Database hosts (StatefulSet service names)
+  POSTGRES_USERS_HOST: "postgres-users"
+  POSTGRES_EVENTS_HOST: "postgres-events"
+  POSTGRES_BOOKINGS_HOST: "postgres-bookings"
+  POSTGRES_PAYMENTS_HOST: "postgres-payments"
+
+  # Service URLs (internal cluster DNS)
+  EVENT_SERVICE_URL: "http://event-service:8080"
+  BOOKING_SERVICE_URL: "http://booking-service:8080"
+
+  # Message broker
+  RABBITMQ_HOST: "rabbitmq"
+
+  # Cache
+  REDIS_CONNECTION: "redis:6379"
+
+  # JWT (non-secret config)
+  JWT_ISSUER: "TicketBooking"
+  JWT_AUDIENCE: "TicketBookingClient"

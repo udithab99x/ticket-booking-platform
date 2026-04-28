@@ -1,0 +1,77 @@
+# ─── postgres-users StatefulSet + Service ────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-users
+  namespace: ticket-booking
+  labels:
+    app: postgres-users
+spec:
+  selector:
+    app: postgres-users
+  ports:
+    - port: 5432
+      targetPort: 5432
+  clusterIP: None   # Headless – stable DNS for StatefulSet
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-users
+  namespace: ticket-booking
+spec:
+  serviceName: postgres-users
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-users
+  template:
+    metadata:
+      labels:
+        app: postgres-users
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: users_db
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 10
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: standard-rwo
+        resources:
+          requests:
+            storage: 5Gi

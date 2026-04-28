@@ -1,0 +1,52 @@
+# ─── NGINX Ingress + TLS ──────────────────────────────────────────────────────
+# Prerequisites (install once via setup script):
+#   helm install ingress-nginx ingress-nginx/ingress-nginx -n ingress-nginx --create-namespace
+#   helm install cert-manager jetstack/cert-manager -n cert-manager --create-namespace --set crds.enabled=true
+#
+# After install, get the external IP:
+#   kubectl get svc -n ingress-nginx ingress-nginx-controller
+# Then replace GKE_EXTERNAL_IP below with the actual IP and re-apply:
+#   kubectl apply -f k8s/ingress/ingress.yaml
+#
+# HTTPS URL will be: https://GKE_EXTERNAL_IP.nip.io
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ticket-booking-ingress
+  namespace: ticket-booking
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # Rewrite /api/auth → /api/auth (no stripping — YARP handles full /api/ prefix)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # TLS / cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  tls:
+    - hosts:
+        - GKE_EXTERNAL_IP.nip.io
+      secretName: ticket-booking-tls
+  rules:
+    - host: GKE_EXTERNAL_IP.nip.io
+      http:
+        paths:
+          # API traffic → API Gateway (all /api/* paths)
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080
+          # Frontend SPA (catch-all)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

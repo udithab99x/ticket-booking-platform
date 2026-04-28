@@ -1,0 +1,25 @@
+# Secrets — never commit
+.env
+*.env.local
+**/secrets*.yaml
+
+# .NET build outputs
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
+
+# Node
+**/node_modules/
+**/dist/
+**/build/
+
+# LaTeX build artifacts
+report/*.aux
+report/*.log
+report/*.out
+
+# OS
+.DS_Store
+Thumbs.db

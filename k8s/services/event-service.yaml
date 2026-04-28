@@ -1,0 +1,92 @@
+# ─── EventService Deployment + Service ───────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-service
+  namespace: ticket-booking
+  labels:
+    app: event-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: event-service
+  template:
+    metadata:
+      labels:
+        app: event-service
+    spec:
+      containers:
+        - name: event-service
+          image: us-central1-docker.pkg.dev/GCP_PROJECT_ID/ticket-booking/event-service:IMAGE_TAG
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+            - name: ConnectionStrings__EventDb
+              value: "Host=postgres-events;Port=5432;Database=events_db;Username=postgres;Password=$(POSTGRES_PASSWORD)"
+            - name: Jwt__Secret
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: JWT_SECRET
+            - name: Jwt__Issuer
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: JWT_ISSUER
+            - name: Jwt__Audience
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: JWT_AUDIENCE
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres-events 5432; do echo waiting for postgres-events; sleep 2; done']
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-service
+  namespace: ticket-booking
+  labels:
+    app: event-service
+spec:
+  selector:
+    app: event-service
+  ports:
+    - port: 8080
+      targetPort: 8080

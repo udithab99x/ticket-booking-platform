@@ -1,0 +1,198 @@
+services:
+  # ─── Databases ───────────────────────────────────────────────────────────────
+  postgres-users:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: users_db
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_users:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-events:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: events_db
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_events:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-bookings:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bookings_db
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_bookings:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  postgres-payments:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payments_db
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_payments:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ─── RabbitMQ ─────────────────────────────────────────────────────────────────
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "15672:15672"   # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  # ─── Microservices ────────────────────────────────────────────────────────────
+  user-service:
+    build:
+      context: .
+      dockerfile: services/TicketBooking.UserService/Dockerfile
+    environment:
+      ConnectionStrings__UserDb: "Host=postgres-users;Port=5432;Database=users_db;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__Issuer: "TicketBooking"
+      Jwt__Audience: "TicketBookingClient"
+    depends_on:
+      postgres-users:
+        condition: service_healthy
+
+  event-service:
+    build:
+      context: .
+      dockerfile: services/TicketBooking.EventService/Dockerfile
+    environment:
+      ConnectionStrings__EventDb: "Host=postgres-events;Port=5432;Database=events_db;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__Issuer: "TicketBooking"
+      Jwt__Audience: "TicketBookingClient"
+    depends_on:
+      postgres-events:
+        condition: service_healthy
+
+  booking-service:
+    build:
+      context: .
+      dockerfile: services/TicketBooking.BookingService/Dockerfile
+    environment:
+      ConnectionStrings__BookingDb: "Host=postgres-bookings;Port=5432;Database=bookings_db;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      ConnectionStrings__Redis: "redis:6379"
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__Issuer: "TicketBooking"
+      Jwt__Audience: "TicketBookingClient"
+      RabbitMq__Host: "rabbitmq"
+      Services__EventService: "http://event-service:8080"
+    depends_on:
+      postgres-bookings:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/TicketBooking.PaymentService/Dockerfile
+    environment:
+      ConnectionStrings__PaymentDb: "Host=postgres-payments;Port=5432;Database=payments_db;Username=postgres;Password=${POSTGRES_PASSWORD}"
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__Issuer: "TicketBooking"
+      Jwt__Audience: "TicketBookingClient"
+      RabbitMq__Host: "rabbitmq"
+      Services__BookingService: "http://booking-service:8080"
+    depends_on:
+      postgres-payments:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/TicketBooking.NotificationService/Dockerfile
+    environment:
+      RabbitMq__Host: "rabbitmq"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  # ─── NGINX Load Balancer (scales booking-service) ─────────────────────────────
+  nginx-lb:
+    image: nginx:alpine
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - booking-service
+
+  # ─── API Gateway ──────────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: .
+      dockerfile: gateway/TicketBooking.Gateway/Dockerfile
+    ports:
+      - "5000:8080"
+    environment:
+      Jwt__Secret: ${JWT_SECRET}
+      Jwt__Issuer: "TicketBooking"
+      Jwt__Audience: "TicketBookingClient"
+    depends_on:
+      - user-service
+      - event-service
+      - nginx-lb
+      - payment-service
+      - notification-service
+
+  # ─── Frontend ─────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend/ticket-booking-ui
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+
+volumes:
+  pg_users:
+  pg_events:
+  pg_bookings:
+  pg_payments:
+  redis_data:
+  rabbitmq_data:
