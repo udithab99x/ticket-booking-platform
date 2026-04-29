@@ -28,10 +28,10 @@ metadata:
 spec:
   tls:
     - hosts:
-        - GKE_EXTERNAL_IP.nip.io
+        - 34.60.190.170.nip.io
       secretName: ticket-booking-tls
   rules:
-    - host: GKE_EXTERNAL_IP.nip.io
+    - host: 34.60.190.170.nip.io
       http:
         paths:
           # API traffic → API Gateway (all /api/* paths)
